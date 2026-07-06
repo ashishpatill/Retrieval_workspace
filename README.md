@@ -31,6 +31,12 @@ Legacy individual backend repos remain on GitHub for history; day-to-day develop
 
 ## Quick Start — One Command
 
+First-time dev setup (Python venvs per backend service + BIMWeb `pnpm install`):
+
+```bash
+./setup-dev.sh
+```
+
 ```bash
 # Start all 5 services (BIMIndex, BIMExtract, BIMAgent, BIMCloud, BIMWeb)
 ./start-platform.sh
