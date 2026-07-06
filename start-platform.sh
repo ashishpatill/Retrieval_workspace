@@ -36,10 +36,10 @@ header(){ echo -e "\n${BOLD}${CYAN}━━━ $1 ━━━${NC}"; }
 # ── Service definitions ──────────────────────────────────────────────────────
 # name | port | health_path | dir | command...
 declare -a SERVICES=(
-  "BIMIndex|8001|/health|BIMIndex|.venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8001"
-  "BIMExtract|8200|/health|BIMExtract|.venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8200"
-  "BIMAgent|8000|/health|BIMAgent|.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000"
-  "BIMCloud|8080|/health|BIMCloud|.venv/bin/python -m uvicorn src.gateway.router:app --host 127.0.0.1 --port 8080"
+  "BIMIndex|8001|/health|bimrag-backend/services/bimindex|.venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8001"
+  "BIMExtract|8200|/health|bimrag-backend/services/bimextract|.venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8200"
+  "BIMAgent|8000|/health|bimrag-backend/services/bimagent|.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000"
+  "BIMCloud|8080|/health|bimrag-backend/services/bimcloud|.venv/bin/python -m uvicorn src.gateway.router:app --host 127.0.0.1 --port 8080"
   "BIMWeb|3000||BIMWeb|pnpm dev"
 )
 
