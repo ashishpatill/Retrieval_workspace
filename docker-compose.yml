@@ -9,7 +9,7 @@
 services:
   bimindex:
     build:
-      context: ./BIMIndex
+      context: ./bimrag-backend/services/bimindex
       dockerfile: Dockerfile
       target: api
     ports:
@@ -28,7 +28,7 @@ services:
 
   bimextract:
     build:
-      context: ./BIMExtract
+      context: ./bimrag-backend/services/bimextract
       dockerfile: Dockerfile
     ports:
       - "8200:8200"
@@ -46,7 +46,7 @@ services:
 
   bimagent:
     build:
-      context: ./BIMAgent
+      context: ./bimrag-backend/services/bimagent
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
@@ -66,7 +66,7 @@ services:
 
   bimcloud:
     build:
-      context: ./BIMCloud
+      context: ./bimrag-backend/services/bimcloud
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
