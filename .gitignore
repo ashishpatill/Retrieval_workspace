@@ -1,0 +1,23 @@
+# Local runtime
+logs/
+output/
+*.log
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python / Node
+__pycache__/
+*.py[cod]
+node_modules/
+
+# Editor / IDE
+.cursor/
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
