@@ -1,0 +1,20 @@
+[submodule "BIMAgent"]
+	path = BIMAgent
+	url = https://github.com/ashishpatill/BIMAgent.git
+	branch = main
+[submodule "BIMCloud"]
+	path = BIMCloud
+	url = https://github.com/ashishpatill/BIMCloud.git
+	branch = master
+[submodule "BIMExtract"]
+	path = BIMExtract
+	url = https://github.com/ashishpatill/BIMExtract.git
+	branch = feature
+[submodule "BIMIndex"]
+	path = BIMIndex
+	url = https://github.com/ashishpatill/BIMIndex.git
+	branch = main
+[submodule "BIMWeb"]
+	path = BIMWeb
+	url = https://github.com/ashishpatill/BIMWeb.git
+	branch = main
