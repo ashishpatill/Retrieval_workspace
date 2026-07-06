@@ -1,0 +1,47 @@
+name: Ecosystem E2E
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  playwright-ecosystem:
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build and start backend services
+        run: |
+          docker compose up -d --build
+          for port in 8001 8200 8000 8080; do
+            for i in $(seq 1 60); do
+              curl -fsS "http://127.0.0.1:${port}/health" && break
+              sleep 2
+            done
+          done
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: BIMWeb/pnpm-lock.yaml
+      - name: Install BIMWeb dependencies
+        working-directory: BIMWeb
+        run: pnpm install
+      - name: Install Playwright
+        working-directory: BIMWeb
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Platform API health specs
+        working-directory: BIMWeb
+        env:
+          ECOSYSTEM_E2E: "true"
+        run: pnpm exec playwright test tests/e2e/platform-api.spec.ts
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

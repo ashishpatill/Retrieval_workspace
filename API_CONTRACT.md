@@ -103,3 +103,7 @@ Ingest success includes `chunk_count`, `indexed` (BIMIndex handoff).
 | `BIMEXTRACT_URL` | BIMAgent | `http://localhost:8200` |
 | `DENSE_EMBEDDING_BACKEND` | BIMIndex | `hashed` (set `colqwen2.5` for GPU) |
 | `DEMO_MODE` | BIMIndex | `true` |
+
+## Repository layout
+
+Service implementations: `bimrag-backend/services/*`. Port and HTTP contracts unchanged.

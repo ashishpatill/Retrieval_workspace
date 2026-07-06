@@ -4,6 +4,31 @@
 
 ![Ecosystem Architecture](assets/ecosystem_overview.png)
 
+## Meta-repo and submodules
+
+This directory is the **BIMRAG meta-repo**. Backend code lives in `bimrag-backend/`; the UI lives in `BIMWeb/`.
+
+```bash
+# Fresh clone
+git clone --recurse-submodules https://github.com/ashishpatill/Retrieval_workspace.git
+cd Retrieval_workspace
+
+# Existing clone: init submodules
+git submodule update --init --recursive
+
+# Move submodules to recorded commits after pull
+git pull
+git submodule update --init --recursive
+```
+
+| Submodule | Repository |
+|-----------|------------|
+| `bimrag-backend` | BIMAgent, BIMCloud, BIMExtract, BIMIndex (consolidated) |
+| `BIMWeb` | Next.js UI |
+
+Legacy individual backend repos remain on GitHub for history; day-to-day development uses `bimrag-backend/services/*`.
+
+
 ## Quick Start — One Command
 
 ```bash
@@ -77,3 +102,8 @@ This stack guarantees **state-of-the-art accuracy** on the most challenging layo
 
 ---
 *Built for scale, engineered for precision, designed for the future.*
+### CI
+
+- **Meta-repo:** `.github/workflows/ecosystem-e2e.yml` runs Playwright platform API tests with `submodules: recursive` and root `docker compose`.
+- **BIMWeb-only:** `BIMWeb/.github/workflows/playwright.yml` `ecosystem` job expects a monorepo checkout; use the meta-repo workflow for full-stack CI.
+

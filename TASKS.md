@@ -1,3 +1,5 @@
+
+> **Layout (2026-07):** Python backends are consolidated under `bimrag-backend/services/{bimindex,bimextract,bimagent,bimcloud}`. Root `docker-compose.yml` and `start-platform.sh` use those paths.
 # BIMRAG Ecosystem — Cross-Repository Task List
 
 This file tracks cross-repo coordination tasks. Each repo has its own `TASKS.md` for per-repo work.
