@@ -1,4 +1,5 @@
 name: Ecosystem E2E
+
 on:
   push:
     branches: [main]
@@ -6,14 +7,19 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Secrets (Repository → Settings → Secrets → Actions):
+#   DATABASE_URL — Neon connection string for BIMWeb dashboard E2E (auth bypass)
+# Optional: E2E_TEST_USER_ID, KINDE_* (passed through to Next dev server if needed)
+
 jobs:
   playwright-ecosystem:
-    timeout-minutes: 45
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
       - name: Build and start backend services
         run: |
           docker compose up -d --build
@@ -23,25 +29,55 @@ jobs:
               sleep 2
             done
           done
+
       - uses: pnpm/action-setup@v4
         with:
           version: 9
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: pnpm
           cache-dependency-path: BIMWeb/pnpm-lock.yaml
+
       - name: Install BIMWeb dependencies
         working-directory: BIMWeb
         run: pnpm install
+
       - name: Install Playwright
         working-directory: BIMWeb
         run: pnpm exec playwright install --with-deps chromium
+
       - name: Platform API health specs
         working-directory: BIMWeb
         env:
           ECOSYSTEM_E2E: "true"
         run: pnpm exec playwright test tests/e2e/platform-api.spec.ts
+
+      - name: BIMWeb dashboard specs (docker-compose + Neon)
+        if: ${{ secrets.DATABASE_URL != '' }}
+        working-directory: BIMWeb
+        env:
+          ECOSYSTEM_E2E: "true"
+          E2E_TEST_BYPASS: "true"
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          E2E_TEST_USER_ID: ${{ secrets.E2E_TEST_USER_ID }}
+          KINDE_ISSUER_URL: ${{ secrets.KINDE_ISSUER_URL }}
+          KINDE_CLIENT_ID: ${{ secrets.KINDE_CLIENT_ID }}
+          KINDE_CLIENT_SECRET: ${{ secrets.KINDE_CLIENT_SECRET }}
+          KINDE_SITE_URL: http://localhost:3000
+          KINDE_POST_LOGOUT_REDIRECT_URL: http://localhost:3000
+          KINDE_POST_LOGIN_REDIRECT_URL: http://localhost:3000/dashboard
+        run: >-
+          pnpm exec playwright test
+          tests/e2e/health.spec.ts
+          tests/e2e/projects-crud.spec.ts
+          tests/e2e/research.spec.ts
+
+      - name: Skip BIMWeb dashboard E2E (DATABASE_URL not configured)
+        if: ${{ secrets.DATABASE_URL == '' }}
+        run: echo "Set GitHub secret DATABASE_URL to run BIMWeb full-stack Playwright specs."
+
       - name: Tear down
         if: always()
         run: docker compose down -v
