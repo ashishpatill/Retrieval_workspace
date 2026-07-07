@@ -109,7 +109,7 @@ Before starting any task, read `ROUTING.md` to select the correct model tier.
 4. ~~**T-ROOT-2** (BIMExtract live endpoints)~~ ✅ **DONE** (server.py on port 8200, 9 scenarios verified)
 5. ~~**T-ROOT-1** (BIMIndex live endpoints)~~ ✅ **DONE** (server.py on port 8001, 5 scenarios verified)
 6. ~~**T-WEB-1** (BIMWeb expanded test coverage) + **T-WEB-13** (API key validation)~~ ✅ **DONE**
-7. **Push BIMWeb migration `0002`** to Neon (human approval)
+7. **Apply BIMWeb migration `0002`** to Neon (`BIMWeb`: `pnpm db:migrate` after `DATABASE_URL` + review)
 8. **BIMWeb `next build` unblock** (pre-existing lightningcss ARM-vs-x64 mismatch)
 
 ## T-ROOT-6: Docker Compose + E2E CI — **DONE**
