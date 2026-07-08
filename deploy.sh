@@ -1,332 +1,256 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  BIMRAG Ecosystem — Unified Deploy
+#  BIMRAG Ecosystem — Unified deploy automation
 # =============================================================================
 #  Usage:
-#    ./deploy.sh [production|sandbox] [--frontend|--backend|--all] [--local]
+#    ./deploy.sh [production|sandbox] [--frontend|--backend|--all] [--local] [--force]
 #
-#  Environments:
-#    production  — Vercel --prod, Neon main branch, GCP BIMCloud (if configured)
-#    sandbox     — Vercel preview, Neon dev branch, docker compose backends
-#
-#  Targets:
-#    --frontend  — BIMWeb only (Vercel)
-#    --backend   — bimrag-backend services only
-#    --all       — frontend + backend (default)
-#    --local     — submodule sync + restart local platform (no cloud deploy)
-#
-#  Change detection uses .deploy-manifest.json (gitignored runtime state).
-#  Seed from .deploy-manifest.template.json on first run.
+#  Examples:
+#    ./deploy.sh production --all          # deploy changed frontend + backend
+#    ./deploy.sh sandbox --frontend        # Vercel preview for BIMWeb
+#    ./deploy.sh sandbox --backend --local # docker compose + restart local stack
+#    ./deploy.sh production --all --force  # ignore change detection
 # =============================================================================
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 MANIFEST="$ROOT/.deploy-manifest.json"
-MANIFEST_TEMPLATE="$ROOT/.deploy-manifest.template.json"
-COMPOSE_FILE="$ROOT/docker-compose.yml"
-BIMWEB_DIR="$ROOT/BIMWeb"
-SERVICES_DIR="$ROOT/bimrag-backend/services"
-BIMCLOUD_DEPLOY_DIR="$SERVICES_DIR/bimcloud/deploy/terraform"
+MANIFEST_TEMPLATE="$ROOT/deploy-manifest.json"
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'
-BOLD='\033[1m'; NC='\033[0m'
-log()  { echo -e "${GREEN}[deploy]${NC} $1"; }
-warn() { echo -e "${YELLOW}[deploy]${NC} $1"; }
-err()  { echo -e "${RED}[deploy]${NC} $1" >&2; }
-die()  { err "$1"; exit 1; }
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
 
-usage() {
-  cat <<'EOF'
-Usage: ./deploy.sh [production|sandbox] [--frontend|--backend|--all] [--local]
+log()   { echo -e "${GREEN}[deploy]${NC} $*"; }
+warn()  { echo -e "${YELLOW}[deploy]${NC} $*"; }
+err()   { echo -e "${RED}[deploy]${NC} $*" >&2; }
+die()   { err "$*"; exit 1; }
+header(){ echo -e "\n${BOLD}${CYAN}━━━ $1 ━━━${NC}"; }
 
-Examples:
-  ./deploy.sh sandbox --all
-  ./deploy.sh production --frontend
-  ./deploy.sh sandbox --backend
-  ./deploy.sh sandbox --local
-EOF
-}
-
-ENVIRONMENT="${1:-sandbox}"
+ENV_TARGET="${1:-sandbox}"
 shift || true
 
-TARGET="all"
-LOCAL=false
+DEPLOY_FRONTEND=0
+DEPLOY_BACKEND=0
+RESTART_LOCAL=0
+FORCE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --frontend) TARGET="frontend" ;;
-    --backend)  TARGET="backend" ;;
-    --all)      TARGET="all" ;;
-    --local)    LOCAL=true ;;
-    -h|--help)  usage; exit 0 ;;
-    *) die "Unknown option: $1 (see --help)" ;;
+    --frontend) DEPLOY_FRONTEND=1 ;;
+    --backend)  DEPLOY_BACKEND=1 ;;
+    --all)      DEPLOY_FRONTEND=1; DEPLOY_BACKEND=1 ;;
+    --local)    RESTART_LOCAL=1 ;;
+    --force)    FORCE=1 ;;
+    -h|--help)
+      sed -n '4,12p' "$0"
+      exit 0
+      ;;
+    *) die "Unknown option: $1" ;;
   esac
   shift
 done
 
-case "$ENVIRONMENT" in
-  production|sandbox) ;;
-  *) die "Environment must be 'production' or 'sandbox' (got: $ENVIRONMENT)" ;;
+[[ "$DEPLOY_FRONTEND" -eq 1 || "$DEPLOY_BACKEND" -eq 1 ]] || DEPLOY_FRONTEND=1
+
+case "$ENV_TARGET" in
+  production|prod) ENV_TARGET="production" ;;
+  sandbox|dev|preview) ENV_TARGET="sandbox" ;;
+  *) die "Environment must be production or sandbox (got: $ENV_TARGET)" ;;
 esac
 
-# ── Manifest helpers ───────────────────────────────────────────────────────────
+export ENV="$ENV_TARGET"
+
 ensure_manifest() {
   if [[ ! -f "$MANIFEST" ]]; then
-    if [[ -f "$MANIFEST_TEMPLATE" ]]; then
-      cp "$MANIFEST_TEMPLATE" "$MANIFEST"
-      log "Initialized $MANIFEST from template"
-    else
-      echo '{"version":1,"last_deploy":{},"fingerprints":{}}' > "$MANIFEST"
-      log "Created empty $MANIFEST"
-    fi
+    cp "$MANIFEST_TEMPLATE" "$MANIFEST"
+    log "Initialized $MANIFEST from template"
   fi
 }
 
-fingerprint_path() {
+component_sha() {
   local path="$1"
-  if [[ ! -e "$path" ]]; then
-    echo "missing"
-    return
-  fi
-  if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    local rel="${path#"$ROOT"/}"
-    if git -C "$ROOT" ls-files --error-unmatch "$rel" >/dev/null 2>&1; then
-      git -C "$ROOT" rev-parse "HEAD:$rel" 2>/dev/null || echo "untracked"
-      return
-    fi
-  fi
-  find "$path" -type f ! -path '*/node_modules/*' ! -path '*/.venv/*' ! -path '*/__pycache__/*' \
-    -exec shasum -a 256 {} + 2>/dev/null | shasum -a 256 | awk '{print $1}'
+  git -C "$ROOT/$path" rev-parse HEAD 2>/dev/null || echo "unknown"
 }
 
-manifest_get() {
-  local key="$1"
-  python3 - "$MANIFEST" "$key" <<'PY'
+manifest_last_sha() {
+  local component="$1"
+  python3 - "$MANIFEST" "$component" <<'PY'
 import json, sys
-path, key = sys.argv[1], sys.argv[2]
+path, component = sys.argv[1], sys.argv[2]
 with open(path) as f:
     data = json.load(f)
-print(data.get("fingerprints", {}).get(key, ""))
+print(data.get("components", {}).get(component, {}).get("last_sha") or "")
 PY
 }
 
-manifest_set() {
-  local key="$1" value="$2"
-  python3 - "$MANIFEST" "$key" "$value" "$ENVIRONMENT" <<'PY'
-import json, sys, datetime
-path, key, value, env = sys.argv[1:5]
+update_manifest() {
+  local component="$1" sha="$2"
+  python3 - "$MANIFEST" "$component" "$sha" "$ENV_TARGET" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+path, component, sha, env = sys.argv[1:5]
 with open(path) as f:
     data = json.load(f)
-data.setdefault("fingerprints", {})[key] = value
-data.setdefault("last_deploy", {})[key] = {
-    "environment": env,
-    "at": datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-}
+data.setdefault("components", {}).setdefault(component, {})
+data["components"][component]["last_sha"] = sha
+data["components"][component]["last_deployed_at"] = datetime.now(timezone.utc).isoformat()
+data["components"][component]["environment"] = env
 with open(path, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
 PY
 }
 
-changed_since_last() {
-  local key="$1" path="$2"
-  local current stored
-  current="$(fingerprint_path "$path")"
-  stored="$(manifest_get "$key")"
-  [[ "$current" != "$stored" ]]
+needs_deploy() {
+  local component="$1" path="$2"
+  local current last
+  current="$(component_sha "$path")"
+  last="$(manifest_last_sha "$component")"
+  if [[ "$FORCE" -eq 1 ]]; then
+    echo "$current"
+    return 0
+  fi
+  if [[ -z "$last" || "$current" != "$last" ]]; then
+    echo "$current"
+    return 0
+  fi
+  return 1
 }
 
-mark_deployed() {
-  local key="$1" path="$2"
-  manifest_set "$key" "$(fingerprint_path "$path")"
+load_bimweb_env() {
+  local env_file="$ROOT/BIMWeb/.env.local"
+  if [[ "$ENV_TARGET" == "production" && -f "$ROOT/BIMWeb/.env.production.local" ]]; then
+    env_file="$ROOT/BIMWeb/.env.production.local"
+  elif [[ -f "$ROOT/BIMWeb/.env.sandbox.local" ]]; then
+    env_file="$ROOT/BIMWeb/.env.sandbox.local"
+  fi
+  if [[ -f "$env_file" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$env_file"
+    set +a
+  fi
 }
 
-# ── Local platform ─────────────────────────────────────────────────────────────
-deploy_local() {
-  log "Syncing submodules"
-  git -C "$ROOT" submodule update --init --recursive
+deploy_frontend() {
+  header "Frontend (BIMWeb → Vercel)"
+  local sha
+  sha="$(needs_deploy frontend BIMWeb)" || {
+    log "Frontend unchanged since last deploy — skipping (use --force)"
+    return 0
+  }
 
+  cd "$ROOT/BIMWeb"
+  if ! command -v npx >/dev/null 2>&1; then
+    die "npx is required for Vercel deploy"
+  fi
+
+  if [[ -f .vercel/project.json ]]; then
+    export VERCEL_ORG_ID="${VERCEL_ORG_ID:-$(python3 -c "import json; print(json.load(open('.vercel/project.json'))['orgId'])")}"
+    export VERCEL_PROJECT_ID="${VERCEL_PROJECT_ID:-$(python3 -c "import json; print(json.load(open('.vercel/project.json'))['projectId'])")}"
+  fi
+
+  local vercel_args=("--yes")
+  if [[ "$ENV_TARGET" == "production" ]]; then
+    vercel_args+=("--prod")
+  fi
+
+  if [[ ! -f .vercel/project.json ]]; then
+    warn "BIMWeb/.vercel/project.json missing — run: cd BIMWeb && npx vercel link"
+    warn "Attempting deploy anyway (requires VERCEL_TOKEN or interactive login)"
+  fi
+
+  log "Deploying BIMWeb ($ENV_TARGET) @ ${sha:0:8}"
+  npx vercel@latest deploy "${vercel_args[@]}"
+  update_manifest frontend "$sha"
+  log "Frontend deploy complete"
+}
+
+deploy_backend_local() {
+  header "Backend (docker compose — sandbox/local)"
+  local sha
+  sha="$(needs_deploy backend bimrag-backend)" || {
+    log "Backend unchanged since last deploy — skipping (use --force)"
+    return 0
+  }
+
+  cd "$ROOT"
+  log "Building and starting backend services @ ${sha:0:8}"
+  docker compose up -d --build
+  update_manifest backend "$sha"
+  log "Backend docker compose stack is up"
+}
+
+deploy_backend_production() {
+  header "Backend (production — BIMCloud GCP)"
+  local sha
+  sha="$(needs_deploy backend bimrag-backend)" || {
+    log "Backend unchanged since last deploy — skipping (use --force)"
+    return 0
+  }
+
+  local cloud_dir="$ROOT/bimrag-backend/services/bimcloud"
+  [[ -d "$cloud_dir/deploy/terraform" ]] || die "Missing BIMCloud terraform at $cloud_dir/deploy/terraform"
+
+  warn "Production backend deploy uses BIMCloud GCP pipeline."
+  echo -e "  ${DIM}Path:${NC} bimrag-backend/services/bimcloud/.github/workflows/deploy.yml"
+  echo -e "  ${DIM}Trigger:${NC} push to bimrag-backend main (bimcloud paths) or manual workflow_dispatch"
+  echo -e "  ${DIM}Requires:${NC} GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT, GCP_PROJECT_ID vars"
+  echo
+  echo -e "  ${DIM}Manual (authenticated gcloud):${NC}"
+  echo "    cd bimrag-backend/services/bimcloud"
+  echo "    gcloud builds submit --tag gcr.io/\$GCP_PROJECT_ID/bimcloud:${sha:0:8}"
+  echo "    cd deploy/terraform && terraform init && terraform apply"
+
+  if [[ -n "${CI:-}" ]]; then
+    die "Production backend deploy must run via bimcloud GitHub workflow or authenticated gcloud"
+  fi
+
+  update_manifest backend "$sha"
+  log "Recorded backend SHA; run bimcloud deploy workflow for Cloud Run rollout"
+}
+
+restart_local_stack() {
+  header "Local stack refresh"
+  cd "$ROOT"
+  git submodule update --init --recursive
   if [[ -x "$ROOT/start-platform.sh" ]]; then
-    log "Restarting local platform"
     "$ROOT/start-platform.sh" --stop || true
     "$ROOT/start-platform.sh" &
-    log "Local platform starting in background (logs: logs/*.log)"
+    disown || true
+    log "Local platform restarted in background (logs: logs/*.log)"
   else
-    die "start-platform.sh not found"
+    warn "start-platform.sh not executable — skipped"
   fi
 }
 
-# ── Frontend (Vercel) ────────────────────────────────────────────────────────
-deploy_frontend() {
-  [[ -d "$BIMWEB_DIR" ]] || die "BIMWeb directory not found"
-
-  local vercel_cmd
-  if command -v vercel >/dev/null 2>&1; then
-    vercel_cmd="vercel"
-  elif command -v npx >/dev/null 2>&1; then
-    vercel_cmd="npx vercel@latest"
-  else
-    die "Vercel CLI not found (install: npm i -g vercel)"
-  fi
-
-  log "Deploying BIMWeb to Vercel ($ENVIRONMENT)"
-  (
-    cd "$BIMWEB_DIR"
-    if [[ "$ENVIRONMENT" == "production" ]]; then
-      $vercel_cmd --prod --yes
-    else
-      $vercel_cmd --yes
-    fi
-  )
-  mark_deployed "frontend:BIMWeb" "$BIMWEB_DIR"
-}
-
-# ── Backend helpers ────────────────────────────────────────────────────────────
-backend_service_paths() {
-  local names=("bimindex" "bimextract" "bimagent" "bimcloud")
-  local name
-  for name in "${names[@]}"; do
-    echo "$name|$SERVICES_DIR/$name|$name"
-  done
-}
-
-compose_up_services() {
-  local -a services=("$@")
-  command -v docker >/dev/null 2>&1 || die "docker not found (required for sandbox backend deploy)"
-
-  if [[ ! -f "$COMPOSE_FILE" ]]; then
-    die "docker-compose.yml not found at $COMPOSE_FILE"
-  fi
-
-  if [[ ${#services[@]} -eq 0 ]]; then
-    log "No backend service changes detected — skipping docker compose"
-    return 0
-  fi
-
-  log "Building and starting changed services: ${services[*]}"
-  docker compose -f "$COMPOSE_FILE" build "${services[@]}"
-  docker compose -f "$COMPOSE_FILE" up -d "${services[@]}"
-
-  local svc port
-  for svc in "${services[@]}"; do
-    case "$svc" in
-      bimindex)   port=8001 ;;
-      bimextract) port=8200 ;;
-      bimagent)   port=8000 ;;
-      bimcloud)   port=8080 ;;
-      *) continue ;;
-    esac
-    log "Waiting for $svc health on :$port"
-    for _ in $(seq 1 60); do
-      if curl -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
-        log "$svc is healthy"
-        break
-      fi
-      sleep 2
-    done
-  done
-}
-
-deploy_backend_gcp() {
-  command -v gcloud >/dev/null 2>&1 || return 1
-  [[ -d "$BIMCLOUD_DEPLOY_DIR" ]] || return 1
-  [[ -f "$SERVICES_DIR/bimcloud/Dockerfile" ]] || return 1
-
-  local project_id="${GCP_PROJECT_ID:-}"
-  if [[ -z "$project_id" ]]; then
-    project_id="$(gcloud config get-value project 2>/dev/null || true)"
-  fi
-  [[ -n "$project_id" && "$project_id" != "(unset)" ]] || return 1
-
-  log "Deploying BIMCloud to GCP ($project_id)"
-  local image="gcr.io/${project_id}/bimcloud:latest"
-  gcloud builds submit "$SERVICES_DIR/bimcloud" --tag "$image"
-
-  (
-    cd "$BIMCLOUD_DEPLOY_DIR"
-    terraform init -input=false
-    terraform apply -auto-approve -input=false
-  )
-  return 0
-}
-
-deploy_backend_compose() {
-  local -a changed=()
-  local entry name path key
-  while IFS='|' read -r name path key; do
-    [[ -d "$path" ]] || continue
-    if changed_since_last "backend:$key" "$path"; then
-      changed+=("$key")
-    fi
-  done < <(backend_service_paths)
-
-  if changed_since_last "backend:docker-compose" "$COMPOSE_FILE"; then
-    changed+=("bimindex" "bimextract" "bimagent" "bimcloud")
-  fi
-
-  # Deduplicate service list
-  if [[ ${#changed[@]} -gt 0 ]]; then
-    local -a unique=()
-    local s u seen
-    for s in "${changed[@]}"; do
-      seen=false
-      for u in "${unique[@]:-}"; do
-        [[ "$u" == "$s" ]] && seen=true && break
-      done
-      $seen || unique+=("$s")
-    done
-    changed=("${unique[@]}")
-  fi
-
-  compose_up_services "${changed[@]}"
-
-  local entry2 name2 path2 key2
-  while IFS='|' read -r name2 path2 key2; do
-    [[ -d "$path2" ]] || continue
-    mark_deployed "backend:$key2" "$path2"
-  done < <(backend_service_paths)
-  mark_deployed "backend:docker-compose" "$COMPOSE_FILE"
-}
-
-deploy_backend() {
-  if [[ "$ENVIRONMENT" == "production" ]]; then
-    if deploy_backend_gcp; then
-      mark_deployed "backend:bimcloud" "$SERVICES_DIR/bimcloud"
-      log "GCP production backend deploy complete"
-      return 0
-    fi
-    warn "GCP BIMCloud deploy unavailable — falling back to docker compose"
-  fi
-
-  deploy_backend_compose
-}
-
-# ── Main ─────────────────────────────────────────────────────────────────────
 main() {
+  header "BIMRAG deploy ($ENV_TARGET)"
   ensure_manifest
+  load_bimweb_env
 
-  log "Environment: ${BOLD}$ENVIRONMENT${NC} | Target: ${BOLD}$TARGET${NC} | Local: $LOCAL"
-
-  if $LOCAL; then
-    deploy_local
-    return 0
+  local exit_code=0
+  if [[ "$DEPLOY_FRONTEND" -eq 1 ]]; then
+    deploy_frontend || exit_code=$?
+  fi
+  if [[ "$DEPLOY_BACKEND" -eq 1 ]]; then
+    if [[ "$ENV_TARGET" == "production" ]]; then
+      deploy_backend_production || exit_code=$?
+    else
+      deploy_backend_local || exit_code=$?
+    fi
+  fi
+  if [[ "$RESTART_LOCAL" -eq 1 ]]; then
+    restart_local_stack || exit_code=$?
   fi
 
-  case "$TARGET" in
-    frontend)
-      deploy_frontend
-      ;;
-    backend)
-      deploy_backend
-      ;;
-    all)
-      deploy_frontend
-      deploy_backend
-      ;;
-  esac
-
-  log "Deploy complete"
+  header "Done"
+  if [[ "$exit_code" -ne 0 ]]; then
+    err "Deploy finished with errors (exit $exit_code)"
+  else
+    log "Deploy finished successfully"
+  fi
+  exit "$exit_code"
 }
 
 main

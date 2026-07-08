@@ -8,6 +8,9 @@ output/
 .env.*
 !.env.example
 
+# Deploy state (local SHAs — may reference env-specific deploys)
+.deploy-manifest.json
+
 # Deploy runtime state (template .deploy-manifest.template.json is committed)
 .deploy-manifest.json
 

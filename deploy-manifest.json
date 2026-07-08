@@ -1,0 +1,18 @@
+{
+  "$schema": "./deploy-manifest.schema.json",
+  "version": 1,
+  "components": {
+    "frontend": {
+      "path": "BIMWeb",
+      "last_sha": null,
+      "last_deployed_at": null,
+      "environment": null
+    },
+    "backend": {
+      "path": "bimrag-backend",
+      "last_sha": null,
+      "last_deployed_at": null,
+      "environment": null
+    }
+  }
+}
