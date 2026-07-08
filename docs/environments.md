@@ -21,7 +21,10 @@ This meta-repo runs **BIMWeb** (Next.js on Vercel + Neon) and **bimrag-backend**
 | `main` | `br-gentle-cloud-atsvon99` | Production (`DATABASE_URL` on Vercel + GitHub Actions) |
 | `dev` | `br-rapid-union-atj3wffr` | Local dev, sandbox, CI E2E against dev data |
 
-**Project ID:** `blue-cake-13205477`
+**Project ID:** `blue-cake-13205477`  
+**Org ID:** `org-silent-sea-32809504`
+
+Last reconnect check (2026-07-08): both branches `ready`; main has migration `0002_narrow_lady_ursula` tables (`workspaces`, `api_keys`, `audit_logs`, `documents`, `notification_preferences`, `search_history`).
 
 Migrations live in `BIMWeb/src/db/migrations/`. Apply with:
 
@@ -48,7 +51,9 @@ ENV=production pnpm db:migrate
 | Team slug | `ashish-ps-projects-a6122913` |
 | Project | `bimweb` |
 | Project ID | `prj_MKPAZVkmOqAbkqzVUKT23XgiFPt8` |
-| Production URL | Not deployed yet — first `./deploy.sh production --frontend` or push to `main` |
+| Production URL | Not live — builds fail (see blockers below) |
+| Preview URL (latest) | `https://bimweb-hhigt4c0m-ashish-ps-projects-a6122913.vercel.app` (ERROR) |
+| Project aliases | `bimweb-ashish-ps-projects-a6122913.vercel.app` |
 
 **GitHub secrets (BIMWeb repo):**
 
@@ -62,10 +67,30 @@ ENV=production pnpm db:migrate
 - `DATABASE_URL` — Neon dev or main (E2E uses bypass auth)
 - Optional: `E2E_TEST_USER_ID`, `KINDE_*`
 
-Set runtime env vars on the Vercel project (Production + Preview):
+Set runtime env vars on the Vercel project (Production + Preview). As of 2026-07-08 reconnect, **no env vars are configured** on the Vercel project (`vercel env ls` returns empty). Add at minimum:
 
 - `DATABASE_URL` (Production → main branch; Preview → dev branch recommended)
 - `KINDE_*`, `NEXT_PUBLIC_BIM*`, `BIMAGENT_URL`, etc. (see `BIMWeb/.env.local.example`)
+
+```bash
+cd BIMWeb
+# Production (main Neon branch)
+printf '%s' "$MAIN_DATABASE_URL" | npx vercel env add DATABASE_URL production
+# Preview (dev Neon branch)
+printf '%s' "$DEV_DATABASE_URL" | npx vercel env add DATABASE_URL preview
+```
+
+## Reconnect blockers (2026-07-08)
+
+| Area | Status |
+|------|--------|
+| Neon MCP | Connected — project, branches, connection strings verified |
+| Local `.env.local` / `.env.production.local` | Present; dev/main endpoints match Neon |
+| GitHub secrets (both repos) | Present: `DATABASE_URL`, `VERCEL_*` |
+| `pnpm db:check` (dev) | Passed — migration 0002 applied |
+| Vercel link (`.vercel/project.json`) | Correct `orgId` + `projectId` |
+| Vercel deploy | **Blocked** — TypeScript error in `src/app/dashboard/settings/page.tsx` (`SessionUser` vs `KindeUser`, missing `picture`) |
+| Vercel runtime env | **Not configured** — add `DATABASE_URL` and auth vars before preview/prod will work |
 
 ## Env file patterns
 
