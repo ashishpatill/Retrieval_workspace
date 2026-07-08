@@ -4,12 +4,11 @@ on:
   push:
     branches: [main]
     paths:
-      - "BIMWeb/**"
-      - "bimrag-backend/**"
-      - "docker-compose.yml"
+      - "BIMWeb"
+      - "bimrag-backend"
       - "deploy.sh"
-      - ".deploy-manifest.template.json"
-      - "docs/environments.md"
+      - "deploy-manifest.json"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
     inputs:
       environment:
@@ -20,8 +19,8 @@ on:
         options:
           - sandbox
           - production
-      target:
-        description: "Deploy target"
+      components:
+        description: "Components to deploy"
         required: true
         default: all
         type: choice
@@ -30,13 +29,8 @@ on:
           - frontend
           - backend
 
-# Secrets (Repository → Settings → Secrets → Actions):
-#   VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID — BIMWeb Vercel CD
-#   DATABASE_URL — Neon (dev for sandbox jobs, main for production migrations)
-# Optional GCP (production BIMCloud): GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT, GCP_PROJECT_ID
-
 jobs:
-  changes:
+  detect-changes:
     runs-on: ubuntu-latest
     outputs:
       frontend: ${{ steps.filter.outputs.frontend }}
@@ -45,89 +39,93 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
             frontend:
-              - 'BIMWeb/**'
+              - 'BIMWeb'
               - 'deploy.sh'
-              - 'docs/environments.md'
             backend:
-              - 'bimrag-backend/**'
-              - 'docker-compose.yml'
+              - 'bimrag-backend'
               - 'deploy.sh'
 
-  deploy-frontend:
-    needs: changes
-    if: >-
-      (github.event_name == 'workflow_dispatch' &&
-       (github.event.inputs.target == 'frontend' || github.event.inputs.target == 'all')) ||
-      (github.event_name == 'push' && needs.changes.outputs.frontend == 'true')
+  deploy:
+    needs: detect-changes
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: BIMWeb
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      needs.detect-changes.outputs.frontend == 'true' ||
+      needs.detect-changes.outputs.backend == 'true'
+    env:
+      DEPLOY_ENV: ${{ github.event.inputs.environment || 'sandbox' }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      - name: Resolve deploy flags
+        id: flags
+        env:
+          INPUT_COMPONENTS: ${{ github.event.inputs.components || 'all' }}
+          FRONTEND_CHANGED: ${{ needs.detect-changes.outputs.frontend }}
+          BACKEND_CHANGED: ${{ needs.detect-changes.outputs.backend }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          args=("$DEPLOY_ENV")
+          if [[ "$INPUT_COMPONENTS" == "all" ]]; then
+            [[ "$FRONTEND_CHANGED" == "true" || "$EVENT_NAME" == "workflow_dispatch" ]] && args+=("--frontend")
+            [[ "$BACKEND_CHANGED" == "true" || "$EVENT_NAME" == "workflow_dispatch" ]] && args+=("--backend")
+          elif [[ "$INPUT_COMPONENTS" == "frontend" ]]; then
+            args+=("--frontend")
+          else
+            args+=("--backend")
+          fi
+          args+=("--force")
+          echo "args=${args[*]}" >> "$GITHUB_OUTPUT"
+
       - uses: pnpm/action-setup@v4
+        if: contains(steps.flags.outputs.args, '--frontend')
         with:
           version: 9
 
       - uses: actions/setup-node@v4
+        if: contains(steps.flags.outputs.args, '--frontend')
         with:
           node-version: "22"
           cache: pnpm
           cache-dependency-path: BIMWeb/pnpm-lock.yaml
 
-      - name: Install dependencies
+      - name: Install BIMWeb dependencies
+        if: contains(steps.flags.outputs.args, '--frontend')
+        working-directory: BIMWeb
         run: pnpm install --frozen-lockfile
 
-      - name: Apply DB migrations (production only)
-        if: >-
-          (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production') ||
-          (github.event_name == 'push')
+      - name: Run unified deploy script
         env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          if [[ -z "${DATABASE_URL:-}" ]]; then
-            echo "DATABASE_URL not set — skipping migrations"
+          chmod +x deploy.sh
+          if [[ "$DEPLOY_ENV" == "production" && -n "$VERCEL_TOKEN" ]]; then
+            echo "$VERCEL_TOKEN" | npx vercel@latest login --token-stdin 2>/dev/null || true
+          fi
+          set +e
+          ./deploy.sh ${{ steps.flags.outputs.args }}
+          code=$?
+          set -e
+          if [[ "$code" -ne 0 && "$DEPLOY_ENV" == "production" && -z "$VERCEL_TOKEN" ]]; then
+            echo "::warning::VERCEL_TOKEN not set — frontend production deploy skipped"
             exit 0
           fi
-          pnpm db:migrate
+          exit "$code"
 
-      - name: Deploy to Vercel
-        uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          working-directory: ./
-          vercel-args: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production') && '--prod' || '' }}
-          scope: ${{ secrets.VERCEL_ORG_ID }}
-
-  deploy-backend:
-    needs: changes
-    if: >-
-      (github.event_name == 'workflow_dispatch' &&
-       (github.event.inputs.target == 'backend' || github.event.inputs.target == 'all')) ||
-      (github.event_name == 'push' && needs.changes.outputs.backend == 'true')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Deploy backend (docker compose)
+      - name: Backend production note
+        if: contains(steps.flags.outputs.args, '--backend') && env.DEPLOY_ENV == 'production'
         run: |
-          chmod +x ./deploy.sh
-          ENV="${{ github.event.inputs.environment || 'sandbox' }}"
-          ./deploy.sh "$ENV" --backend
-
-      - name: Tear down compose services
-        if: always()
-        run: docker compose down -v
+          echo "Production backend rolls out via bimrag-backend/services/bimcloud/.github/workflows/deploy.yml"
+          echo "Configure GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT on bimcloud repo."

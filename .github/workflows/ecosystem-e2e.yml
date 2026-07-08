@@ -55,7 +55,6 @@ jobs:
         run: pnpm exec playwright test tests/e2e/platform-api.spec.ts
 
       - name: BIMWeb dashboard specs (docker-compose + Neon)
-        if: ${{ secrets.DATABASE_URL != '' }}
         working-directory: BIMWeb
         env:
           ECOSYSTEM_E2E: "true"
@@ -68,15 +67,15 @@ jobs:
           KINDE_SITE_URL: http://localhost:3000
           KINDE_POST_LOGOUT_REDIRECT_URL: http://localhost:3000
           KINDE_POST_LOGIN_REDIRECT_URL: http://localhost:3000/dashboard
-        run: >-
-          pnpm exec playwright test
-          tests/e2e/health.spec.ts
-          tests/e2e/projects-crud.spec.ts
-          tests/e2e/research.spec.ts
-
-      - name: Skip BIMWeb dashboard E2E (DATABASE_URL not configured)
-        if: ${{ secrets.DATABASE_URL == '' }}
-        run: echo "Set GitHub secret DATABASE_URL to run BIMWeb full-stack Playwright specs."
+        run: |
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "Set GitHub secret DATABASE_URL to run BIMWeb full-stack Playwright specs."
+            exit 0
+          fi
+          pnpm exec playwright test \
+            tests/e2e/health.spec.ts \
+            tests/e2e/projects-crud.spec.ts \
+            tests/e2e/research.spec.ts
 
       - name: Tear down
         if: always()
