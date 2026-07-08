@@ -1,105 +1,128 @@
-# BIMRAG Environments
+# Environment management — Production vs Sandbox
 
-This meta-repo deploys **BIMWeb** (Vercel + Neon) and **bimrag-backend** services (Docker locally; GCP for production BIMCloud when configured).
+This meta-repo runs **BIMWeb** (Next.js on Vercel + Neon) and **bimrag-backend** services (local Docker or BIMCloud on GCP).
 
-## Environment matrix
+## Overview
 
-| | **Sandbox** | **Production** |
-|---|---|---|
-| **Purpose** | Preview, dev, CI E2E | Live users |
-| **Frontend** | Vercel preview (`vercel`) | Vercel production (`vercel --prod`) |
-| **Database** | Neon branch `dev` | Neon branch `main` |
-| **Backends** | `docker compose` on changed services | GCP Cloud Run via BIMCloud Terraform (if configured), else docker compose |
-| **Local dev** | `./start-platform.sh` + Neon `dev` in `BIMWeb/.env.local` | Not used for day-to-day dev |
+| Aspect | Production | Sandbox / Dev |
+|--------|------------|---------------|
+| Git branch | `main` | feature branches, PRs, local |
+| Neon branch | `main` (default) | `dev` |
+| Neon project | `bimweb` (`blue-cake-13205477`) | same project, `dev` branch |
+| Frontend deploy | Vercel production (`vercel --prod`) | Vercel preview or `pnpm dev` |
+| Backend deploy | BIMCloud GCP (Cloud Run + Terraform) | `docker compose up` or `./start-platform.sh` |
+| Database URL | Vercel Production env + GitHub secret | `.env.local` / Neon dev branch |
+| Auth bypass | **Off** | `E2E_TEST_BYPASS=true` for Playwright only |
 
-## Neon (Postgres)
+## Neon
 
-| Branch | Neon ID | Use |
-|---|---|---|
-| `main` | `br-gentle-cloud-atsvon99` | Production `DATABASE_URL` |
-| `dev` | `br-rapid-union-atj3wffr` | Sandbox / local `DATABASE_URL` |
+| Branch | Branch ID | Use |
+|--------|-----------|-----|
+| `main` | `br-gentle-cloud-atsvon99` | Production (`DATABASE_URL` on Vercel + GitHub Actions) |
+| `dev` | `br-rapid-union-atj3wffr` | Local dev, sandbox, CI E2E against dev data |
 
-Project: **bimweb** (`blue-cake-13205477`, `aws-us-east-1`).
+**Project ID:** `blue-cake-13205477`
 
-- Local: copy `BIMWeb/.env.sandbox.example` → `BIMWeb/.env.local` and set `DATABASE_URL` from the Neon console or `get_connection_string` (dev branch).
-- CI: GitHub secret `DATABASE_URL` on `Retrieval_workspace` (ecosystem E2E) and `BIMWeb` (CD/migrations). Use **dev** for CI, **main** for production Vercel env.
-- Migrations: `cd BIMWeb && pnpm db:migrate` (requires `DATABASE_URL` in `.env.local`).
-
-## Vercel (BIMWeb)
-
-| Setting | Source |
-|---|---|
-| `VERCEL_ORG_ID` | Team id from Vercel → Settings (e.g. `team_…`) |
-| `VERCEL_PROJECT_ID` | Project → Settings → General |
-| `VERCEL_TOKEN` | Vercel account token (CI only) |
-
-Link the project once from `BIMWeb/`:
+Migrations live in `BIMWeb/src/db/migrations/`. Apply with:
 
 ```bash
 cd BIMWeb
-npx vercel link
+pnpm db:migrate          # uses .env.local (dev branch)
+pnpm db:check            # verify migration 0002 markers
 ```
 
-Runtime env vars (set in Vercel dashboard, not committed):
-
-- `DATABASE_URL` — Neon **main** for production, **dev** for preview
-- `KINDE_*` — OAuth (issuer, client id/secret, redirect URLs)
-- `NEXT_PUBLIC_BIMAGENT_URL`, `NEXT_PUBLIC_BIMINDEX_URL`, `NEXT_PUBLIC_BIMEXTRACT_URL`, `NEXT_PUBLIC_BIMCLOUD_URL`
-- Optional: `SENTRY_DSN`, `NEXT_PUBLIC_POSTHOG_KEY`, Upstash, S3
-
-## Backend services
-
-| Service | Port | Sandbox deploy | Production deploy |
-|---|---|---|---|
-| BIMIndex | 8001 | docker compose | docker compose (or host of your choice) |
-| BIMExtract | 8200 | docker compose | docker compose |
-| BIMAgent | 8000 | docker compose | docker compose |
-| BIMCloud | 8080 | docker compose | `gcloud` + Terraform (`bimrag-backend/services/bimcloud/deploy/terraform`) when `GCP_PROJECT_ID` and WIF secrets are set |
-
-## Deploy commands
+For production Neon (`main` branch), use a local-only file (never commit):
 
 ```bash
-# Sandbox — full stack
-./deploy.sh sandbox --all
-
-# Production — frontend only
-./deploy.sh production --frontend
-
-# Changed backend services only (compose)
-./deploy.sh sandbox --backend
-
-# Refresh submodules + restart local platform
-./deploy.sh sandbox --local
+cp .env.sandbox.example .env.production.local
+# set DATABASE_URL to main-branch connection string
+ENV=production pnpm db:migrate
 ```
 
-Change detection: `./deploy.sh` compares git/tree fingerprints in `.deploy-manifest.json` (gitignored). Template: `.deploy-manifest.template.json`.
+## Vercel
 
-## GitHub Actions secrets
+| Setting | Value |
+|---------|-------|
+| Team | Ashish P's projects |
+| Team ID | `team_CLXPxEDYIpsGkYyu3y2sSWFO` |
+| Team slug | `ashish-ps-projects-a6122913` |
+| Project | `bimweb` |
+| Project ID | `prj_MKPAZVkmOqAbkqzVUKT23XgiFPt8` |
+| Production URL | Not deployed yet — first `./deploy.sh production --frontend` or push to `main` |
 
-### `Retrieval_workspace` (meta-repo)
+**GitHub secrets (BIMWeb repo):**
 
-| Secret | Value |
-|---|---|
-| `DATABASE_URL` | Neon **dev** connection string (ecosystem E2E) |
+- `VERCEL_TOKEN` — personal/team token from Vercel dashboard
+- `VERCEL_ORG_ID` — `team_CLXPxEDYIpsGkYyu3y2sSWFO`
+- `VERCEL_PROJECT_ID` — `prj_MKPAZVkmOqAbkqzVUKT23XgiFPt8`
+- `DATABASE_URL` — Neon **main** branch connection string
 
-### `BIMWeb` (submodule repo)
+**GitHub secrets (Retrieval_workspace meta-repo):**
 
-| Secret | Value |
-|---|---|
-| `DATABASE_URL` | Neon **main** (prod CD) or **dev** (preview) |
-| `VERCEL_TOKEN` | Vercel API token |
-| `VERCEL_ORG_ID` | `team_CLXPxEDYIpsGkYyu3y2sSWFO` (Ashish P's projects) |
-| `VERCEL_PROJECT_ID` | `prj_MKPAZVkmOqAbkqzVUKT23XgiFPt8` (linked via `vercel link --project bimweb`) |
-| `KINDE_*` | Auth for E2E / CD |
+- `DATABASE_URL` — Neon dev or main (E2E uses bypass auth)
+- Optional: `E2E_TEST_USER_ID`, `KINDE_*`
 
-Workflows:
+Set runtime env vars on the Vercel project (Production + Preview):
 
-- `.github/workflows/deploy.yml` — meta-repo orchestration (path filters)
-- `BIMWeb/.github/workflows/cd.yml` — Vercel production on `main`
-- `.github/workflows/ecosystem-e2e.yml` — Playwright + docker compose backends
+- `DATABASE_URL` (Production → main branch; Preview → dev branch recommended)
+- `KINDE_*`, `NEXT_PUBLIC_BIM*`, `BIMAGENT_URL`, etc. (see `BIMWeb/.env.local.example`)
+
+## Env file patterns
+
+| File | Committed | Purpose |
+|------|-----------|---------|
+| `.env.local.example` | Yes | Template for local dev |
+| `.env.sandbox.example` | Yes | Sandbox/dev with `ENV=sandbox`, E2E flags |
+| `.env.local` | **No** | Active local dev (Neon dev branch) |
+| `.env.sandbox.local` | **No** | Optional override when `ENV=sandbox` |
+| `.env.production.local` | **No** | Local prod migration checks only |
+
+`setup-dev.sh` copies `.env.local.example` → `.env.local` when missing. Set `ENV=sandbox|production` before running scripts; `deploy.sh` exports `ENV` automatically.
+
+## Local stack
+
+```bash
+./setup-dev.sh
+./start-platform.sh              # all 5 services
+docker compose up -d --build     # backends only (CI pattern)
+```
+
+Backend ports: BIMAgent `:8000`, BIMIndex `:8001`, BIMCloud `:8080`, BIMExtract `:8200`, BIMWeb `:3000`.
+
+## Unified deploy
+
+```bash
+chmod +x deploy.sh
+./deploy.sh sandbox --all --local     # preview + docker + restart
+./deploy.sh production --frontend       # Vercel prod (changed BIMWeb only)
+./deploy.sh production --backend      # documents GCP path, records SHA
+./deploy.sh sandbox --backend --force   # rebuild docker even if unchanged
+```
+
+Change detection uses `.deploy-manifest.json` (gitignored). Template: `deploy-manifest.json`.
+
+## CI/CD mapping
+
+| Event | Workflow | Action |
+|-------|----------|--------|
+| Push `main` (meta-repo) | `.github/workflows/ecosystem-e2e.yml` | Docker backends + Playwright |
+| Push `main` (meta-repo) | `.github/workflows/deploy.yml` | Path-filtered `./deploy.sh` logic |
+| Push `main` (BIMWeb) | `BIMWeb/.github/workflows/cd.yml` | Vercel production deploy |
+| PR (any) | Vercel Git integration | Preview deployment |
+| Push `main` (bimcloud paths) | `bimrag-backend/services/bimcloud/.github/workflows/deploy.yml` | GCP Cloud Run |
+
+**Branch → secrets:** `main` uses production secrets; PRs use preview env on Vercel and optional dev `DATABASE_URL` for E2E.
+
+## Production backend (BIMCloud)
+
+Production backends deploy via **bimcloud** GCP Terraform, not Vercel:
+
+1. Configure GCP workload identity + `GCP_PROJECT_ID`, `GCP_REGION(S)`, `BIMAGENT_URL` vars
+2. Push to `bimrag-backend` main with changes under `services/bimcloud/`
+3. Or run `gcloud builds submit` + `terraform apply` manually (see `deploy.sh` output)
 
 ## Security
 
-- Never commit `.env.local`, `.deploy-manifest.json`, or Neon connection strings.
-- Use Neon **dev** for local and CI; reserve **main** for production Vercel only.
-- Rotate credentials if a connection string was exposed in logs or chat.
+- Never commit `.env.local`, `.env.production.local`, or `.deploy-manifest.json`
+- Never log `DATABASE_URL` or API keys in CI output
+- `E2E_TEST_BYPASS` is for CI/sandbox only

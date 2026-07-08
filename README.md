@@ -111,5 +111,9 @@ This stack guarantees **state-of-the-art accuracy** on the most challenging layo
 ### CI
 
 - **Meta-repo:** `.github/workflows/ecosystem-e2e.yml` runs Playwright platform API tests with `submodules: recursive` and root `docker compose`.
+- **Meta-repo:** `.github/workflows/deploy.yml` path-filtered unified deploy (`./deploy.sh`) on submodule pointer changes.
+- **BIMWeb-only:** `BIMWeb/.github/workflows/cd.yml` deploys to Vercel on push to `main`.
 - **BIMWeb-only:** `BIMWeb/.github/workflows/playwright.yml` `ecosystem` job expects a monorepo checkout; use the meta-repo workflow for full-stack CI.
+
+See [docs/environments.md](docs/environments.md) for production vs sandbox configuration.
 
