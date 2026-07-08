@@ -61,11 +61,23 @@ if ! command -v pnpm >/dev/null 2>&1; then
 fi
 pnpm install
 
-if [[ -f "$BIMWEB/.env.local.example" && ! -f "$BIMWEB/.env.local" ]]; then
-  cp "$BIMWEB/.env.local.example" "$BIMWEB/.env.local"
-  log "Created BIMWeb/.env.local from .env.local.example"
-elif [[ ! -f "$BIMWEB/.env.local.example" ]]; then
-  log "BIMWeb/.env.local.example not present — skip env copy (see BIMWeb/README.md)"
+ENV="${ENV:-sandbox}"
+export ENV
+
+env_template="$BIMWEB/.env.local.example"
+if [[ "$ENV" == "sandbox" && -f "$BIMWEB/.env.sandbox.example" ]]; then
+  env_template="$BIMWEB/.env.sandbox.example"
+fi
+
+if [[ ! -f "$BIMWEB/.env.local" ]]; then
+  if [[ -f "$env_template" ]]; then
+    cp "$env_template" "$BIMWEB/.env.local"
+    log "Created BIMWeb/.env.local from $(basename "$env_template") (ENV=$ENV)"
+  else
+    log "No env template found — skip env copy (see docs/environments.md)"
+  fi
+else
+  log "BIMWeb/.env.local already exists (ENV=$ENV)"
 fi
 
 cat <<EOF
@@ -73,11 +85,14 @@ cat <<EOF
 Setup complete.
 
 Next steps:
-  1. Review BIMWeb/.env.local (Kinde, database, API URLs) if you use auth locally.
-  2. From this directory, start the stack:
+  1. Review BIMWeb/.env.local (Neon DATABASE_URL, Kinde, API URLs).
+  2. Apply DB migrations: cd BIMWeb && pnpm db:migrate && pnpm db:check
+  3. From this directory, start the stack:
        ./start-platform.sh
-  3. Optional Docker backends only:
+  4. Optional Docker backends only:
        docker compose up -d --build
+  5. Deploy changed components:
+       ./deploy.sh sandbox --all --local
 
-Docs: README.md, API_CONTRACT.md
+Docs: README.md, docs/environments.md
 EOF
