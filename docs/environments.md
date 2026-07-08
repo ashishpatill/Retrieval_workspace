@@ -67,7 +67,7 @@ ENV=production pnpm db:migrate
 - `DATABASE_URL` — Neon dev or main (E2E uses bypass auth)
 - Optional: `E2E_TEST_USER_ID`, `KINDE_*`
 
-Set runtime env vars on the Vercel project (Production + Preview). As of 2026-07-08 reconnect, **no env vars are configured** on the Vercel project (`vercel env ls` returns empty). Add at minimum:
+Set runtime env vars on the Vercel project (Production + Preview). **Configured via CLI (2026-07-09):** `DATABASE_URL` (preview → Neon dev, production → Neon main), `E2E_TEST_BYPASS=true` (preview only). Still add manually in Vercel dashboard or CLI (do not commit values):
 
 - `DATABASE_URL` (Production → main branch; Preview → dev branch recommended)
 - `KINDE_*`, `NEXT_PUBLIC_BIM*`, `BIMAGENT_URL`, etc. (see `BIMWeb/.env.local.example`)
@@ -78,6 +78,18 @@ cd BIMWeb
 printf '%s' "$MAIN_DATABASE_URL" | npx vercel env add DATABASE_URL production
 # Preview (dev Neon branch)
 printf '%s' "$DEV_DATABASE_URL" | npx vercel env add DATABASE_URL preview
+printf 'true' | npx vercel env add E2E_TEST_BYPASS preview --yes
+```
+
+**Kinde (Production + Preview)** — copy from local `.env.local` (same app credentials; set `KINDE_SITE_URL` / redirect URLs per environment):
+
+- `KINDE_ISSUER_URL`, `KINDE_CLIENT_ID`, `KINDE_CLIENT_SECRET`
+- `KINDE_SITE_URL`, `KINDE_POST_LOGIN_REDIRECT_URL`, `KINDE_POST_LOGOUT_REDIRECT_URL`
+
+```bash
+# Example (run once per var per target; pipe value, never echo secrets)
+printf '%s' "$KINDE_CLIENT_ID" | npx vercel env add KINDE_CLIENT_ID preview --yes
+printf '%s' "$KINDE_CLIENT_ID" | npx vercel env add KINDE_CLIENT_ID production --yes
 ```
 
 ## Reconnect blockers (2026-07-08)
@@ -89,8 +101,8 @@ printf '%s' "$DEV_DATABASE_URL" | npx vercel env add DATABASE_URL preview
 | GitHub secrets (both repos) | Present: `DATABASE_URL`, `VERCEL_*` |
 | `pnpm db:check` (dev) | Passed — migration 0002 applied |
 | Vercel link (`.vercel/project.json`) | Correct `orgId` + `projectId` |
-| Vercel deploy | **Blocked** — TypeScript error in `src/app/dashboard/settings/page.tsx` (`SessionUser` vs `KindeUser`, missing `picture`) |
-| Vercel runtime env | **Not configured** — add `DATABASE_URL` and auth vars before preview/prod will work |
+| Vercel deploy | TypeScript fix merged; redeploy via `./deploy.sh sandbox --frontend` |
+| Vercel runtime env | **Partial** — `DATABASE_URL` + preview `E2E_TEST_BYPASS`; add `KINDE_*` and service URLs before auth works in preview/prod |
 
 ## Env file patterns
 
