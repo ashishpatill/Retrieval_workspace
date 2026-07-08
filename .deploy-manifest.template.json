@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "description": "Runtime deploy fingerprints. Copy to .deploy-manifest.json (gitignored) on first ./deploy.sh run.",
+  "last_deploy": {},
+  "fingerprints": {
+    "frontend:BIMWeb": "",
+    "backend:bimindex": "",
+    "backend:bimextract": "",
+    "backend:bimagent": "",
+    "backend:bimcloud": "",
+    "backend:docker-compose": ""
+  }
+}

@@ -8,6 +8,9 @@ output/
 .env.*
 !.env.example
 
+# Deploy runtime state (template .deploy-manifest.template.json is committed)
+.deploy-manifest.json
+
 # Python / Node
 __pycache__/
 *.py[cod]
