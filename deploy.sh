@@ -161,7 +161,10 @@ deploy_frontend() {
   fi
 
   log "Deploying BIMWeb ($ENV_TARGET) @ ${sha:0:8}"
-  npx vercel@latest deploy "${vercel_args[@]}"
+  if ! npx vercel@latest deploy "${vercel_args[@]}"; then
+    err "Vercel deploy failed (exit $?)"
+    return 1
+  fi
   update_manifest frontend "$sha"
   log "Frontend deploy complete"
 }
@@ -176,7 +179,10 @@ deploy_backend_local() {
 
   cd "$ROOT"
   log "Building and starting backend services @ ${sha:0:8}"
-  docker compose up -d --build
+  if ! docker compose up -d --build; then
+    err "docker compose up failed (exit $?)"
+    return 1
+  fi
   update_manifest backend "$sha"
   log "Backend docker compose stack is up"
 }
