@@ -49,11 +49,11 @@ ENV=production pnpm db:migrate
 | Team | Ashish P's projects |
 | Team ID | `team_CLXPxEDYIpsGkYyu3y2sSWFO` |
 | Team slug | `ashish-ps-projects-a6122913` |
-| Project | `bimweb` |
+| Project | `bimrag-web` (renamed from `bimweb`) |
 | Project ID | `prj_MKPAZVkmOqAbkqzVUKT23XgiFPt8` |
-| Production URL | Not live — builds fail (see blockers below) |
-| Preview URL (latest) | `https://bimweb-hhigt4c0m-ashish-ps-projects-a6122913.vercel.app` (ERROR) |
-| Project aliases | `bimweb-ashish-ps-projects-a6122913.vercel.app` |
+| Production URL | `https://bimrag-web.vercel.app` (after first successful `--prod` deploy) |
+| Preview URL pattern | `https://bimrag-web-<hash>-ashish-ps-projects-a6122913.vercel.app` (unique per deploy) |
+| Project aliases | `bimrag-web-ashish-ps-projects-a6122913.vercel.app` |
 
 **GitHub secrets (BIMWeb repo):**
 
@@ -67,7 +67,7 @@ ENV=production pnpm db:migrate
 - `DATABASE_URL` — Neon dev or main (E2E uses bypass auth)
 - Optional: `E2E_TEST_USER_ID`, `KINDE_*`
 
-Set runtime env vars on the Vercel project (Production + Preview). **Configured via CLI (2026-07-09):** `DATABASE_URL` (preview → Neon dev, production → Neon main), `E2E_TEST_BYPASS=true` (preview only). Still add manually in Vercel dashboard or CLI (do not commit values):
+Set runtime env vars on the Vercel project (Production + Preview). **Configured via CLI (2026-07-09):** `DATABASE_URL` (preview → Neon dev, production → Neon main), `E2E_TEST_BYPASS=true` (preview only), `KINDE_ISSUER_URL`, `KINDE_CLIENT_ID`, `KINDE_CLIENT_SECRET` (placeholder until real secret from Kinde dashboard), redirect/site `KINDE_*`, and `NEXT_PUBLIC_BIM*` / `NEXT_PUBLIC_APP_URL`. Replace `KINDE_CLIENT_SECRET` with the real value from [Kinde dashboard](https://superlearnai.kinde.com) → Applications → Details.
 
 - `DATABASE_URL` (Production → main branch; Preview → dev branch recommended)
 - `KINDE_*`, `NEXT_PUBLIC_BIM*`, `BIMAGENT_URL`, etc. (see `BIMWeb/.env.local.example`)
@@ -101,8 +101,8 @@ printf '%s' "$KINDE_CLIENT_ID" | npx vercel env add KINDE_CLIENT_ID production -
 | GitHub secrets (both repos) | Present: `DATABASE_URL`, `VERCEL_*` |
 | `pnpm db:check` (dev) | Passed — migration 0002 applied |
 | Vercel link (`.vercel/project.json`) | Correct `orgId` + `projectId` |
-| Vercel deploy | TypeScript fix merged; redeploy via `./deploy.sh sandbox --frontend` |
-| Vercel runtime env | **Partial** — `DATABASE_URL` + preview `E2E_TEST_BYPASS`; add `KINDE_*` and service URLs before auth works in preview/prod |
+| Vercel deploy | Build gate + Kinde env configured; deploy via `./deploy.sh sandbox --frontend` |
+| Vercel runtime env | `DATABASE_URL`, `KINDE_*` (secret placeholder — replace for live auth), `NEXT_PUBLIC_*`, preview `E2E_TEST_BYPASS` |
 
 ## Env file patterns
 

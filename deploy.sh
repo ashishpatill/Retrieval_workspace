@@ -160,6 +160,14 @@ deploy_frontend() {
     warn "Attempting deploy anyway (requires VERCEL_TOKEN or interactive login)"
   fi
 
+  log "Running local build gate (pnpm build)..."
+  local build_ec=0
+  pnpm build || build_ec=$?
+  if [[ "$build_ec" -ne 0 ]]; then
+    err "Local pnpm build failed (exit $build_ec) — aborting Vercel deploy"
+    return 1
+  fi
+
   log "Deploying BIMWeb ($ENV_TARGET) @ ${sha:0:8}"
   local vercel_ec=0
   npx vercel@latest deploy "${vercel_args[@]}" || vercel_ec=$?
