@@ -121,7 +121,7 @@ In [Kinde](https://superlearnai.kinde.com) → Applications → BIMWeb / Superle
 | Local | `http://localhost:3000/api/auth/kinde_callback` |
 | Local logout | `http://localhost:3000` |
 
-If login still fails after allowlisting, confirm Vercel `KINDE_SITE_URL` / redirect vars match the allowlisted host (CLI `env add` can flake with `TypeError: fetch failed` — retry or set in the Vercel dashboard).
+If login still fails after allowlisting, confirm Vercel `KINDE_SITE_URL` / redirect vars match the allowlisted host. **Note:** `vercel env update`/`add` can hang or leave sensitive values empty; prefer Vercel REST API delete+create as `type=plain` for non-secret URLs, or set in the Vercel dashboard (Project → Settings → Environment Variables).
 
 ## Status checklist (2026-07-09)
 
@@ -132,11 +132,11 @@ If login still fails after allowlisting, confirm Vercel `KINDE_SITE_URL` / redir
 | Vercel env names | DONE — `DATABASE_URL`, `KINDE_*` (incl. secret), `NEXT_PUBLIC_*` on preview + production |
 | Kinde secret (local) | DONE — real secret in gitignored `.env.local` (matches Superlearn-platform) |
 | Kinde dashboard allowlist | **NEEDS USER** — add production callback/logout URLs (table above) |
-| Kinde redirect URL values on Vercel | **VERIFY** — names present; if login redirects to localhost, update `KINDE_SITE_URL` / post-login/logout to the production alias (CLI updates may flake) |
+| Kinde redirect URL values on Vercel | **DONE** — production + preview set to `https://bimrag-web-ashish-ps-projects-a6122913.vercel.app` (post-login `/dashboard`); verified via Vercel API (recreated as plain after sensitive CLI/API updates left empty values) |
 | Custom domain | **NEEDS USER** — assign `bimrag-web.vercel.app` or own domain in Vercel |
-| GitHub secrets | **VERIFY** — prior setup claimed present; `gh` token currently invalid (`gh auth refresh`) |
+| GitHub secrets | **NEEDS USER** — `gh auth status` invalid keyring token; run `gh auth refresh -h github.com`, then verify secret names on `Retrieval_workspace` |
 | Backend GCP / Cloud Run | **NEEDS USER** — `./deploy.sh production --backend` documents path; needs GCP WI + vars |
-| Local stack | **BLOCKED** — Docker Desktop / `docker` CLI not available on this machine; all services offline |
+| Local stack | **BLOCKED** — Docker Desktop not installed (`/Applications/Docker.app` missing; no `docker` on PATH / `~/.docker/bin`); all local services offline |
 | Deployment Protection | Note — unauthenticated `curl` may 302 to Vercel SSO; app itself is healthy (MCP fetch 200) |
 
 ## Reconnect blockers (2026-07-08 → updated 2026-07-09)
@@ -173,7 +173,7 @@ docker compose up -d --build     # backends only (CI pattern)
 ./deploy.sh sandbox --backend --local   # compose build + optional platform restart
 ```
 
-**Blocker (2026-07-09):** `docker` CLI / Docker Desktop not installed (or not on `PATH`) on the agent host, so `./deploy.sh sandbox --backend --local` cannot start backends until Docker is available. Frontend-only local: `cd BIMWeb && pnpm dev`.
+**Blocker (2026-07-09):** Docker Desktop is not installed on this host (`/Applications/Docker.app` absent; no CLI under `/usr/local/bin`, `/opt/homebrew/bin`, or `~/.docker/bin`). Install Docker Desktop, then `./deploy.sh sandbox --backend --local` or `./start-platform.sh`. Frontend-only: `cd BIMWeb && pnpm dev`.
 
 Backend ports: BIMAgent `:8000`, BIMIndex `:8001`, BIMCloud `:8080`, BIMExtract `:8200`, BIMWeb `:3000`.
 
