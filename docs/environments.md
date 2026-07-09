@@ -51,9 +51,11 @@ ENV=production pnpm db:migrate
 | Team slug | `ashish-ps-projects-a6122913` |
 | Project | `bimrag-web` (renamed from `bimweb`) |
 | Project ID | `prj_MKPAZVkmOqAbkqzVUKT23XgiFPt8` |
-| Production URL | `https://bimrag-web.vercel.app` (after first successful `--prod` deploy) |
+| Production URL (live alias) | `https://bimrag-web-ashish-ps-projects-a6122913.vercel.app` |
+| Production URL (pretty) | `https://bimrag-web.vercel.app` (assign custom domain when ready) |
 | Preview URL pattern | `https://bimrag-web-<hash>-ashish-ps-projects-a6122913.vercel.app` (unique per deploy) |
-| Project aliases | `bimrag-web-ashish-ps-projects-a6122913.vercel.app` |
+| Project aliases | `bimrag-web-ashish-ps-projects-a6122913.vercel.app`, `bimrag-web-git-main-…`, `bimweb-dusky.vercel.app` |
+| Latest READY production deploy | `dpl_B4YXNmJ4fCHfevQG72wpuArd4Xx2` (2026-07-09) — later CLI redeploys may show `BLOCKED` under Vercel Deployment Protection |
 
 **GitHub secrets (BIMWeb repo):**
 
@@ -67,9 +69,9 @@ ENV=production pnpm db:migrate
 - `DATABASE_URL` — Neon dev or main (E2E uses bypass auth)
 - Optional: `E2E_TEST_USER_ID`, `KINDE_*`
 
-Set runtime env vars on the Vercel project (Production + Preview). **Configured via CLI (2026-07-09):** `DATABASE_URL` (preview → Neon dev, production → Neon main), `E2E_TEST_BYPASS=true` (preview only), `KINDE_ISSUER_URL`, `KINDE_CLIENT_ID`, `KINDE_CLIENT_SECRET` (placeholder until real secret from Kinde dashboard), redirect/site `KINDE_*`, and `NEXT_PUBLIC_BIM*` / `NEXT_PUBLIC_APP_URL`. Replace `KINDE_CLIENT_SECRET` with the real value from [Kinde dashboard](https://superlearnai.kinde.com) → Applications → Details.
+Set runtime env vars on the Vercel project (Production + Preview). **Verified via CLI (2026-07-09):** `DATABASE_URL` (preview + production), `E2E_TEST_BYPASS=true` (preview only), full `KINDE_*` set (including `KINDE_CLIENT_SECRET`), and `NEXT_PUBLIC_BIM*` / `NEXT_PUBLIC_APP_URL`.
 
-- `DATABASE_URL` (Production → main branch; Preview → dev branch recommended)
+- `DATABASE_URL` (Production → Neon main; Preview → Neon dev recommended)
 - `KINDE_*`, `NEXT_PUBLIC_BIM*`, `BIMAGENT_URL`, etc. (see `BIMWeb/.env.local.example`)
 
 ```bash
@@ -81,28 +83,73 @@ printf '%s' "$DEV_DATABASE_URL" | npx vercel env add DATABASE_URL preview
 printf 'true' | npx vercel env add E2E_TEST_BYPASS preview --yes
 ```
 
-**Kinde (Production + Preview)** — copy from local `.env.local` (same app credentials; set `KINDE_SITE_URL` / redirect URLs per environment):
+**Kinde (Production + Preview)** — real `KINDE_CLIENT_SECRET` found in local gitignored env (matches Superlearn-platform; length > 20, not a placeholder) and is present on Vercel for preview + production. Local `BIMWeb/.env.local` / `.env.production.local` hold the same credentials (never commit).
+
+Required vars:
 
 - `KINDE_ISSUER_URL`, `KINDE_CLIENT_ID`, `KINDE_CLIENT_SECRET`
 - `KINDE_SITE_URL`, `KINDE_POST_LOGIN_REDIRECT_URL`, `KINDE_POST_LOGOUT_REDIRECT_URL`
+
+Recommended production values (alias currently serving traffic):
+
+| Var | Production value |
+|-----|------------------|
+| `KINDE_SITE_URL` | `https://bimrag-web-ashish-ps-projects-a6122913.vercel.app` |
+| `KINDE_POST_LOGIN_REDIRECT_URL` | `https://bimrag-web-ashish-ps-projects-a6122913.vercel.app/dashboard` |
+| `KINDE_POST_LOGOUT_REDIRECT_URL` | `https://bimrag-web-ashish-ps-projects-a6122913.vercel.app` |
+| `NEXT_PUBLIC_APP_URL` | `https://bimrag-web-ashish-ps-projects-a6122913.vercel.app` |
 
 ```bash
 # Example (run once per var per target; pipe value, never echo secrets)
 printf '%s' "$KINDE_CLIENT_ID" | npx vercel env add KINDE_CLIENT_ID preview --yes
 printf '%s' "$KINDE_CLIENT_ID" | npx vercel env add KINDE_CLIENT_ID production --yes
+# Force-replace an existing var:
+npx vercel env rm KINDE_CLIENT_SECRET production --yes
+printf '%s' "$KINDE_CLIENT_SECRET" | npx vercel env add KINDE_CLIENT_SECRET production --yes
 ```
 
-## Reconnect blockers (2026-07-08)
+### Kinde dashboard allowlist (manual — required for live login)
+
+In [Kinde](https://superlearnai.kinde.com) → Applications → BIMWeb / Superlearn app → **Allowed callback / logout URLs**, add:
+
+| Type | URL |
+|------|-----|
+| Callback | `https://bimrag-web-ashish-ps-projects-a6122913.vercel.app/api/auth/kinde_callback` |
+| Logout | `https://bimrag-web-ashish-ps-projects-a6122913.vercel.app` |
+| Logout (alt) | `https://bimrag-web-ashish-ps-projects-a6122913.vercel.app/api/auth/logout` |
+| Callback (pretty domain, when assigned) | `https://bimrag-web.vercel.app/api/auth/kinde_callback` |
+| Local | `http://localhost:3000/api/auth/kinde_callback` |
+| Local logout | `http://localhost:3000` |
+
+If login still fails after allowlisting, confirm Vercel `KINDE_SITE_URL` / redirect vars match the allowlisted host (CLI `env add` can flake with `TypeError: fetch failed` — retry or set in the Vercel dashboard).
+
+## Status checklist (2026-07-09)
+
+| Area | Status |
+|------|--------|
+| Neon | DONE — `bimweb` project; `main` + `dev` ready; migration `0002` applied |
+| Vercel project | DONE — `bimrag-web`; production alias returns 200 (BIMWeb landing) |
+| Vercel env names | DONE — `DATABASE_URL`, `KINDE_*` (incl. secret), `NEXT_PUBLIC_*` on preview + production |
+| Kinde secret (local) | DONE — real secret in gitignored `.env.local` (matches Superlearn-platform) |
+| Kinde dashboard allowlist | **NEEDS USER** — add production callback/logout URLs (table above) |
+| Kinde redirect URL values on Vercel | **VERIFY** — names present; if login redirects to localhost, update `KINDE_SITE_URL` / post-login/logout to the production alias (CLI updates may flake) |
+| Custom domain | **NEEDS USER** — assign `bimrag-web.vercel.app` or own domain in Vercel |
+| GitHub secrets | **VERIFY** — prior setup claimed present; `gh` token currently invalid (`gh auth refresh`) |
+| Backend GCP / Cloud Run | **NEEDS USER** — `./deploy.sh production --backend` documents path; needs GCP WI + vars |
+| Local stack | **BLOCKED** — Docker Desktop / `docker` CLI not available on this machine; all services offline |
+| Deployment Protection | Note — unauthenticated `curl` may 302 to Vercel SSO; app itself is healthy (MCP fetch 200) |
+
+## Reconnect blockers (2026-07-08 → updated 2026-07-09)
 
 | Area | Status |
 |------|--------|
 | Neon MCP | Connected — project, branches, connection strings verified |
-| Local `.env.local` / `.env.production.local` | Present; dev/main endpoints match Neon |
-| GitHub secrets (both repos) | Present: `DATABASE_URL`, `VERCEL_*` |
+| Local `.env.local` / `.env.production.local` | Present; real Kinde secret; production.local URLs set to live alias |
+| GitHub secrets (both repos) | Previously set (`DATABASE_URL`, `VERCEL_*`); re-verify after `gh auth refresh` |
 | `pnpm db:check` (dev) | Passed — migration 0002 applied |
 | Vercel link (`.vercel/project.json`) | Correct `orgId` + `projectId` |
-| Vercel deploy | Build gate + Kinde env configured; deploy via `./deploy.sh sandbox --frontend` |
-| Vercel runtime env | `DATABASE_URL`, `KINDE_*` (secret placeholder — replace for live auth), `NEXT_PUBLIC_*`, preview `E2E_TEST_BYPASS` |
+| Vercel deploy | READY production deploy serving alias; build gate in `deploy.sh` |
+| Vercel runtime env | `DATABASE_URL`, `KINDE_*` (real secret present), `NEXT_PUBLIC_*`, preview `E2E_TEST_BYPASS` |
 
 ## Env file patterns
 
@@ -121,8 +168,12 @@ printf '%s' "$KINDE_CLIENT_ID" | npx vercel env add KINDE_CLIENT_ID production -
 ```bash
 ./setup-dev.sh
 ./start-platform.sh              # all 5 services
+./start-platform.sh --status     # health table
 docker compose up -d --build     # backends only (CI pattern)
+./deploy.sh sandbox --backend --local   # compose build + optional platform restart
 ```
+
+**Blocker (2026-07-09):** `docker` CLI / Docker Desktop not installed (or not on `PATH`) on the agent host, so `./deploy.sh sandbox --backend --local` cannot start backends until Docker is available. Frontend-only local: `cd BIMWeb && pnpm dev`.
 
 Backend ports: BIMAgent `:8000`, BIMIndex `:8001`, BIMCloud `:8080`, BIMExtract `:8200`, BIMWeb `:3000`.
 
@@ -152,11 +203,21 @@ Change detection uses `.deploy-manifest.json` (gitignored). Template: `deploy-ma
 
 ## Production backend (BIMCloud)
 
-Production backends deploy via **bimcloud** GCP Terraform, not Vercel:
+`./deploy.sh production --backend` does **not** push to Cloud Run itself — it records the backend SHA and prints the GCP path. Actual rollout:
 
-1. Configure GCP workload identity + `GCP_PROJECT_ID`, `GCP_REGION(S)`, `BIMAGENT_URL` vars
-2. Push to `bimrag-backend` main with changes under `services/bimcloud/`
-3. Or run `gcloud builds submit` + `terraform apply` manually (see `deploy.sh` output)
+1. Configure GitHub secrets/vars on `ashishpatill/bimrag-backend`:
+   - Secrets: `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`
+   - Vars: `GCP_PROJECT_ID`, `GCP_REGION` (or `GCP_REGIONS`), `BIMAGENT_URL`
+2. Push to `bimrag-backend` `main` with changes under `services/bimcloud/` (triggers `.github/workflows/deploy.yml`)
+3. Or run manually (authenticated `gcloud`):
+
+```bash
+cd bimrag-backend/services/bimcloud
+gcloud builds submit --tag "gcr.io/$GCP_PROJECT_ID/bimcloud:$(git rev-parse --short HEAD)"
+cd deploy/terraform && terraform init && terraform apply
+```
+
+Sandbox backends: `./deploy.sh sandbox --backend --local` → `docker compose up -d --build` (requires Docker).
 
 ## Security
 
